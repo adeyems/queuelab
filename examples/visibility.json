@@ -1,0 +1,9 @@
+{
+  "version": 1,
+  "workers": 2,
+  "visibility_timeout_ms": 10,
+  "retry": {"max_attempts": 3, "backoff": "fixed", "delay_ms": 5},
+  "jobs": [
+    {"id": "lost-ack", "failures_before_success": 0, "duration_ms": 4, "ack_lost_attempts": [1]}
+  ]
+}

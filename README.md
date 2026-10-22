@@ -7,6 +7,7 @@ An offline, virtual-time retry simulator for developers designing background-job
 ```sh
 python3 queuelab.py examples/retries.json
 python3 queuelab.py examples/workers.json
+python3 queuelab.py examples/visibility.json
 python3 -m unittest discover -s tests -v
 ```
 
@@ -28,4 +29,21 @@ The worker example runs three jobs with two workers: the slow job runs from 0–
 
 ## Boundaries
 
-This is a new policy simulator, not a broker, worker runtime or production queue emulator. Dead-lettering is a terminal report state, not an external queue. It does not yet model acknowledgements, visibility timeouts, jitter, persistence or redrive. Workers have identical capacity and jobs have constant per-attempt durations. Synthetic job metadata only; do not supply customer data, credentials or real payloads. See `ROADMAP.md` for unfinished work.
+This is a new policy simulator, not a broker, worker runtime or production queue emulator. Dead-lettering is a terminal report state, not an external queue. It does not yet model jitter, persistence, redrive, heartbeat lease extensions or broker-specific semantics. Workers have identical capacity and jobs have constant per-attempt durations. Synthetic job metadata only; do not supply customer data, credentials or real payloads. See `ROADMAP.md` for unfinished work.
+
+## Opt-in acknowledgements and visibility timeouts
+
+Set top-level `visibility_timeout_ms` to an integer from 1 to 1,000,000,000. Without it, the original completion-based simulation and report format remain unchanged. In timeout mode, each dispatched attempt gets a unique `receipt_id` and a lease starting at actual dispatch, not at queue arrival. Optional job field `ack_lost_attempts` lists unique attempt numbers (1–100) whose successful completion loses its acknowledgement. This field requires timeout mode. Failures never send success acknowledgements; a lost-ack entry for a failed or never-dispatched attempt has no effect.
+
+- A successful completion with a current receipt acknowledges the job and cancels its lease.
+- A failed completion with a current receipt releases the lease and schedules the existing fixed/exponential backoff from completion.
+- A lost acknowledgement leaves the job invisible until lease expiry, even though its worker becomes idle at completion.
+- Lease expiry immediately makes the next delivery eligible, without additional retry backoff. Dispatch still waits for worker capacity. Expiry does **not** stop or free the original worker, so duplicate attempts may overlap.
+- Expired receipt acknowledgements are stale and ignored, even if no replacement has started yet. A stale failure also schedules nothing. This models receipt validity, not idempotent application side effects.
+- `max_attempts` limits total dispatched deliveries, including redeliveries. Failure or expiry on the final delivery dead-letters the job. All already-running attempts still finish; their completions cannot change a terminal job result.
+
+At a shared timestamp, completions precede lease expirations, then dispatch runs. Completion ties and expiration ties use receipt order; ready-queue ties retain insertion order. Thus successful completion exactly at its deadline acknowledges successfully, unless its acknowledgement is configured as lost. This is an explicit simulation convention, not a claim about any particular broker.
+
+Timeout-mode events include `type`: `attempt_completed` or `visibility_expired`. Completion events retain worker and timing fields and add `acknowledgement` (`accepted`, `lost`, `stale`, or `not_sent`). Expiry events identify the receipt and terminal/redelivery state, not a worker release. Summary `attempts` counts deliveries, **not** event records. Each job's `finished_ms` is its terminal acknowledgement/dead-letter time; summary `finished_ms` includes draining stale in-flight executions. Cancelled lease timers produce no events and do not extend reported completion time.
+
+`examples/visibility.json` loses the first acknowledgement at 4 ms, expires its lease at 10 ms and completes the acknowledged redelivery at 14 ms. It exits 0 with one successful job and two deliveries. To explore overlapping duplicates, use a duration greater than the visibility timeout with at least two workers; with constant durations all such receipts expire before completion and the job eventually dead-letters.

@@ -20,9 +20,11 @@ def fields(value, required, optional=()):
 
 
 def validate(scenario):
-    fields(scenario, ('version', 'retry', 'jobs'), ('workers',))
+    fields(scenario, ('version', 'retry', 'jobs'), ('workers', 'visibility_timeout_ms'))
     integer(scenario['version'], 'version', 1, 1)
     integer(scenario.get('workers', 1), 'workers', 1, 1000)
+    if 'visibility_timeout_ms' in scenario:
+        integer(scenario['visibility_timeout_ms'], 'visibility_timeout_ms', 1, 1_000_000_000)
     retry = scenario['retry']
     fields(retry, ('max_attempts', 'backoff', 'delay_ms'))
     integer(retry['max_attempts'], 'max_attempts', 1, 100)
@@ -34,7 +36,7 @@ def validate(scenario):
         raise ValueError('jobs must contain 1 to 1000 jobs')
     ids = set()
     for job in jobs:
-        fields(job, ('id', 'failures_before_success'), ('enqueue_ms', 'duration_ms'))
+        fields(job, ('id', 'failures_before_success'), ('enqueue_ms', 'duration_ms', 'ack_lost_attempts'))
         name = job['id']
         if not isinstance(name, str) or not 1 <= len(name) <= 64 or not name.isascii() or not all(c.isalnum() or c in '_-' for c in name):
             raise ValueError('Job id must be 1–64 ASCII letters, digits, hyphens or underscores')
@@ -44,12 +46,23 @@ def validate(scenario):
         integer(job['failures_before_success'], 'failures_before_success', 0, 100)
         integer(job.get('enqueue_ms', 0), 'enqueue_ms', 0, 1_000_000_000)
         integer(job.get('duration_ms', 0), 'duration_ms', 0, 1_000_000_000)
+        lost = job.get('ack_lost_attempts', [])
+        if not isinstance(lost, list) or len(lost) > 100:
+            raise ValueError('ack_lost_attempts must be a list of at most 100 attempt numbers')
+        for number in lost:
+            integer(number, 'ack_lost_attempts entry', 1, 100)
+        if len(set(lost)) != len(lost):
+            raise ValueError('ack_lost_attempts must not contain duplicates')
+        if 'ack_lost_attempts' in job and 'visibility_timeout_ms' not in scenario:
+            raise ValueError('ack_lost_attempts requires visibility_timeout_ms')
     return scenario
 
 
 def simulate(scenario):
     """FIFO-ready dispatch with completion-first ties and lowest-ID idle workers."""
     validate(scenario)
+    if 'visibility_timeout_ms' in scenario:
+        return simulate_visibility(scenario)
     retry = scenario['retry']
     queue = []
     sequence = 0
@@ -99,6 +112,88 @@ def simulate(scenario):
             'summary': {'succeeded': sum(j['state'] == 'succeeded' for j in ordered),
                         'dead_lettered': sum(j['state'] == 'dead_lettered' for j in ordered),
                         'attempts': len(events), 'finished_ms': events[-1]['time_ms']}}
+
+
+def simulate_visibility(scenario):
+    """Validated opt-in receipt/lease model; expiry never cancels worker execution."""
+    retry = scenario['retry']
+    ready = []
+    scheduled = []
+    idle = list(range(1, scenario.get('workers', 1) + 1))
+    current = {}
+    results = {}
+    events = []
+    counts = {job['id']: 0 for job in scenario['jobs']}
+    sequence = 0
+    receipt = 0
+    at = 0
+
+    def enqueue(job, when):
+        nonlocal sequence
+        heapq.heappush(ready, (when, sequence, job))
+        sequence += 1
+
+    def settle(job, attempt, event, success=False, timeout=False):
+        current.pop(job['id'], None)
+        if success or attempt == retry['max_attempts']:
+            state = 'succeeded' if success else 'dead_lettered'
+            event['state'] = state
+            results[job['id']] = dict(id=job['id'], state=state, attempts=attempt, finished_ms=at)
+        else:
+            delay = 0 if timeout else retry['delay_ms'] * (2 ** (attempt - 1) if retry['backoff'] == 'exponential' else 1)
+            event.update(state='redelivery_scheduled' if timeout else 'retry_scheduled', next_attempt_ms=at + delay)
+            enqueue(job, at + delay)
+
+    for job in scenario['jobs']:
+        enqueue(job, job.get('enqueue_ms', 0))
+    while ready or scheduled:
+        if scheduled and scheduled[0][0] <= at:
+            _, kind, token, worker, eligible, started, attempt, job = heapq.heappop(scheduled)
+            active = current.get(job['id']) == token
+            if kind == 1:
+                if not active:
+                    continue
+                event = dict(time_ms=at, job_id=job['id'], attempt=attempt, receipt_id=token,
+                             type='visibility_expired')
+                settle(job, attempt, event, timeout=True)
+            else:
+                heapq.heappush(idle, worker)
+                success = attempt > job['failures_before_success']
+                event = dict(time_ms=at, job_id=job['id'], attempt=attempt, receipt_id=token,
+                             type='attempt_completed', worker_id=worker, ready_ms=eligible,
+                             started_ms=started, wait_ms=started - eligible, duration_ms=at - started,
+                             outcome='succeeded' if success else 'failed')
+                if not active:
+                    event.update(acknowledgement='stale' if success else 'not_sent', state='stale_completion')
+                elif not success:
+                    event['acknowledgement'] = 'not_sent'
+                    settle(job, attempt, event)
+                elif attempt in job.get('ack_lost_attempts', []):
+                    event.update(acknowledgement='lost', state='awaiting_visibility_timeout')
+                else:
+                    event['acknowledgement'] = 'accepted'
+                    settle(job, attempt, event, success=True)
+            events.append(event)
+        elif idle and ready and ready[0][0] <= at:
+            eligible, _, job = heapq.heappop(ready)
+            worker = heapq.heappop(idle)
+            receipt += 1
+            counts[job['id']] += 1
+            attempt = counts[job['id']]
+            current[job['id']] = receipt
+            data = (receipt, worker, eligible, at, attempt, job)
+            heapq.heappush(scheduled, (at + job.get('duration_ms', 0), 0, *data))
+            heapq.heappush(scheduled, (at + scenario['visibility_timeout_ms'], 1, *data))
+        else:
+            times = [scheduled[0][0]] if scheduled else []
+            if idle and ready:
+                times.append(ready[0][0])
+            at = min(times)
+    ordered = [results[job['id']] for job in scenario['jobs']]
+    return {'version': 1, 'events': events, 'jobs': ordered,
+            'summary': {'succeeded': sum(j['state'] == 'succeeded' for j in ordered),
+                        'dead_lettered': sum(j['state'] == 'dead_lettered' for j in ordered),
+                        'attempts': sum(counts.values()), 'finished_ms': events[-1]['time_ms']}}
 
 
 def load(path):

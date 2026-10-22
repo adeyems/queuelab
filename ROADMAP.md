@@ -4,9 +4,10 @@ Completed milestone 1: validated synthetic scenarios, deterministic virtual-time
 
 Completed milestone 2: bounded worker concurrency, per-job attempt duration, completion-based backoff, deterministic dispatch/completion ties, per-attempt waiting times and overlapping-job tests.
 
+Completed milestone 3: opt-in receipt-based acknowledgements, synthetic lost acknowledgements, visibility expiry/redelivery, overlapping duplicates, stale completion handling and bounded delivery counts.
+
 Remaining candidate milestones (not promises of hours worked or submission eligibility):
 
-- Acknowledgement and visibility timeouts: demonstrate redelivery and duplicate processing with deterministic traces.
 - Seeded jitter and capped backoff: reproduce identical runs and test delay bounds.
 - Dead-letter redrive: explicitly select exhausted jobs and preserve their earlier attempt history.
 - Policy comparison: compare completion time, attempt count and exhausted jobs across the same scenario.
