@@ -20,8 +20,9 @@ def fields(value, required, optional=()):
 
 
 def validate(scenario):
-    fields(scenario, ('version', 'retry', 'jobs'))
+    fields(scenario, ('version', 'retry', 'jobs'), ('workers',))
     integer(scenario['version'], 'version', 1, 1)
+    integer(scenario.get('workers', 1), 'workers', 1, 1000)
     retry = scenario['retry']
     fields(retry, ('max_attempts', 'backoff', 'delay_ms'))
     integer(retry['max_attempts'], 'max_attempts', 1, 100)
@@ -33,7 +34,7 @@ def validate(scenario):
         raise ValueError('jobs must contain 1 to 1000 jobs')
     ids = set()
     for job in jobs:
-        fields(job, ('id', 'failures_before_success'), ('enqueue_ms',))
+        fields(job, ('id', 'failures_before_success'), ('enqueue_ms', 'duration_ms'))
         name = job['id']
         if not isinstance(name, str) or not 1 <= len(name) <= 64 or not name.isascii() or not all(c.isalnum() or c in '_-' for c in name):
             raise ValueError('Job id must be 1–64 ASCII letters, digits, hyphens or underscores')
@@ -42,11 +43,12 @@ def validate(scenario):
         ids.add(name)
         integer(job['failures_before_success'], 'failures_before_success', 0, 100)
         integer(job.get('enqueue_ms', 0), 'enqueue_ms', 0, 1_000_000_000)
+        integer(job.get('duration_ms', 0), 'duration_ms', 0, 1_000_000_000)
     return scenario
 
 
 def simulate(scenario):
-    """Attempts are instantaneous; ties use scheduling insertion order, not job ID."""
+    """FIFO-ready dispatch with completion-first ties and lowest-ID idle workers."""
     validate(scenario)
     retry = scenario['retry']
     queue = []
@@ -55,11 +57,32 @@ def simulate(scenario):
         heapq.heappush(queue, (job.get('enqueue_ms', 0), sequence, 1, job))
         sequence += 1
     events, results = [], {}
-    while queue:
-        at, _, attempt, job = heapq.heappop(queue)
+    idle = list(range(1, scenario.get('workers', 1) + 1))
+    running = []
+    at = 0
+    dispatch_sequence = 0
+    while queue or running:
+        if running and running[0][0] <= at:
+            at, _, worker, ready, started, attempt, job = heapq.heappop(running)
+            heapq.heappush(idle, worker)
+        elif idle and queue and queue[0][0] <= at:
+            ready, _, attempt, job = heapq.heappop(queue)
+            worker = heapq.heappop(idle)
+            heapq.heappush(running, (at + job.get('duration_ms', 0), dispatch_sequence,
+                                     worker, ready, at, attempt, job))
+            dispatch_sequence += 1
+            continue
+        else:
+            candidates = ([running[0][0]] if running else [])
+            if idle and queue:
+                candidates.append(queue[0][0])
+            at = min(candidates)
+            continue
         succeeded = attempt > job['failures_before_success']
         terminal = succeeded or attempt == retry['max_attempts']
         event = {'time_ms': at, 'job_id': job['id'], 'attempt': attempt,
+                 'worker_id': worker, 'ready_ms': ready, 'started_ms': started,
+                 'wait_ms': started - ready, 'duration_ms': at - started,
                  'outcome': 'succeeded' if succeeded else 'failed'}
         if terminal:
             state = 'succeeded' if succeeded else 'dead_lettered'

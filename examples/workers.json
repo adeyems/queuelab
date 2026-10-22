@@ -1,0 +1,10 @@
+{
+  "version": 1,
+  "workers": 2,
+  "retry": {"max_attempts": 3, "backoff": "fixed", "delay_ms": 5},
+  "jobs": [
+    {"id": "slow", "failures_before_success": 0, "duration_ms": 30},
+    {"id": "transient", "failures_before_success": 1, "duration_ms": 10},
+    {"id": "waiting", "failures_before_success": 0, "duration_ms": 15}
+  ]
+}
