@@ -1,0 +1,8 @@
+{
+  "version": 1,
+  "retry": {
+    "max_attempts": 5, "backoff": "exponential", "delay_ms": 10,
+    "max_delay_ms": 25, "jitter": "full", "seed": 42
+  },
+  "jobs": [{"id": "transient", "failures_before_success": 4}]
+}

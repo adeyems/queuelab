@@ -6,9 +6,10 @@ Completed milestone 2: bounded worker concurrency, per-job attempt duration, com
 
 Completed milestone 3: opt-in receipt-based acknowledgements, synthetic lost acknowledgements, visibility expiry/redelivery, overlapping duplicates, stale completion handling and bounded delivery counts.
 
+Completed milestone 4: optional fixed/exponential delay caps and seeded full jitter, shared retry policy across simulation modes, reproducible examples and bound/isolation tests.
+
 Remaining candidate milestones (not promises of hours worked or submission eligibility):
 
-- Seeded jitter and capped backoff: reproduce identical runs and test delay bounds.
 - Dead-letter redrive: explicitly select exhausted jobs and preserve their earlier attempt history.
 - Policy comparison: compare completion time, attempt count and exhausted jobs across the same scenario.
 - Scenario suites, report visualization and packaging: reproducible examples, useful diagnostics and installable CLI.

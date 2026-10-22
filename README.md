@@ -8,6 +8,7 @@ An offline, virtual-time retry simulator for developers designing background-job
 python3 queuelab.py examples/retries.json
 python3 queuelab.py examples/workers.json
 python3 queuelab.py examples/visibility.json
+python3 queuelab.py examples/jitter.json
 python3 -m unittest discover -s tests -v
 ```
 
@@ -19,9 +20,9 @@ See `examples/retries.json`. Required top-level fields are `version`, `retry`, a
 
 Each job has a unique ASCII `id` (1–64 letters, digits, hyphens or underscores), `failures_before_success` (0–100), and optional `enqueue_ms` and `duration_ms` (each default 0, integer 0–1,000,000,000). Duration applies to every attempt, successful or failed. A job fails that many initial attempts, then succeeds if its retry allowance permits. Files are limited to 1 MiB and 1–1,000 jobs. Booleans are not accepted as integers; duplicate JSON keys are rejected.
 
-Each attempt occupies one worker for its duration, without preemption. After failed attempt n finishes, fixed backoff waits `delay_ms`; exponential waits `delay_ms * 2**(n-1)`. Workers are free during backoff, and a ready retry may wait longer for capacity. There is no jitter or delay cap. Python integer timestamps preserve large values exactly; consumers using JavaScript numbers must handle values beyond their safe integer range.
+Each attempt occupies one worker for its duration, without preemption. After failed attempt n finishes, fixed backoff waits `delay_ms`; exponential waits `delay_ms * 2**(n-1)`, optionally capped and jittered as described below. Workers are free during backoff, and a ready retry may wait longer for capacity. Python integer timestamps preserve large values exactly; consumers using JavaScript numbers must handle values beyond their safe integer range.
 
-Ready attempts are dispatched by ready time, then scheduling insertion order, to the lowest-numbered idle worker. Initial arrivals are inserted in input order before any retries. A retry therefore follows already-scheduled arrivals at the same ready time, including with zero delay. At a timestamp, all pending completions are processed before further dispatch; completion ties use dispatch order. A zero-duration attempt completes before the next dispatch at that timestamp. Job summaries preserve input order. Identical scenarios produce identical reports; no randomness, wall-clock timestamps, networking or real sleeps are used.
+Ready attempts are dispatched by ready time, then scheduling insertion order, to the lowest-numbered idle worker. Initial arrivals are inserted in input order before any retries. A retry therefore follows already-scheduled arrivals at the same ready time, including with zero delay. At a timestamp, all pending completions are processed before further dispatch; completion ties use dispatch order. A zero-duration attempt completes before the next dispatch at that timestamp. Job summaries preserve input order. Identical scenarios produce identical reports, including when using seeded jitter; no wall-clock timestamps, networking or real sleeps are used.
 
 Each event reports a completed attempt: `time_ms` is completion time, `started_ms` is actual start, `ready_ms` is arrival or retry eligibility, `wait_ms` is time waiting for a worker, and `worker_id` identifies the occupied worker (numbered from 1). `duration_ms` is elapsed execution time. `next_attempt_ms` indicates retry eligibility, not a guaranteed start. Events are in completion order; summary `finished_ms` is the last completion. Existing zero-duration scenarios retain their timing and outcomes; event records gain these timing fields.
 
@@ -29,7 +30,21 @@ The worker example runs three jobs with two workers: the slow job runs from 0–
 
 ## Boundaries
 
-This is a new policy simulator, not a broker, worker runtime or production queue emulator. Dead-lettering is a terminal report state, not an external queue. It does not yet model jitter, persistence, redrive, heartbeat lease extensions or broker-specific semantics. Workers have identical capacity and jobs have constant per-attempt durations. Synthetic job metadata only; do not supply customer data, credentials or real payloads. See `ROADMAP.md` for unfinished work.
+This is a new policy simulator, not a broker, worker runtime or production queue emulator. Dead-lettering is a terminal report state, not an external queue. It does not yet model persistence, redrive, heartbeat lease extensions or broker-specific semantics. Workers have identical capacity and jobs have constant per-attempt durations. Synthetic job metadata only; do not supply customer data, credentials or real payloads. See `ROADMAP.md` for unfinished work.
+
+## Capped backoff and seeded full jitter
+
+The `retry` object accepts three optional fields:
+
+- `max_delay_ms`: integer 0–1,000,000,000. Caps the computed fixed or exponential delay, including the first retry. Omission leaves backoff uncapped; zero permits immediate retries.
+- `jitter`: `none` (default) or `full`. Full jitter samples an integer uniformly from zero through the capped delay, inclusive. Apply the cap **before** sampling.
+- `seed`: integer 0–4,294,967,295, required for full jitter and rejected otherwise to avoid silently unused settings.
+
+Each simulation owns a fresh `random.Random(seed)` stream. Retry scheduling consumes draws in deterministic completion order, including zero-bound draws. Successes, exhausted attempts, stale completions and visibility-timeout redelivery consume none. The stream is shared across jobs in that simulation; changing job order, durations or worker counts can change which job receives which draw. No global random state is read or changed. The known seeded sequence is tested across the supported Python CI matrix; no promise is made about future Python random-algorithm changes.
+
+The cap bounds retry backoff, not job duration, capacity waiting, total latency or visibility leases. Both normal simulation and explicit-failure retries in timeout mode use this policy. Expiry redelivery remains immediately eligible.
+
+`examples/jitter.json` uses seed 42, base delay 10 ms and cap 25 ms. Its four retry delays are 10, 3, 0 and 23 ms; the fifth attempt succeeds at 36 ms. Running the command twice produces identical JSON. Omitting all three fields preserves the previous policy and output.
 
 ## Opt-in acknowledgements and visibility timeouts
 

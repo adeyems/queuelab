@@ -2,6 +2,7 @@
 import argparse
 import heapq
 import json
+import random
 import sys
 from pathlib import Path
 
@@ -26,11 +27,19 @@ def validate(scenario):
     if 'visibility_timeout_ms' in scenario:
         integer(scenario['visibility_timeout_ms'], 'visibility_timeout_ms', 1, 1_000_000_000)
     retry = scenario['retry']
-    fields(retry, ('max_attempts', 'backoff', 'delay_ms'))
+    fields(retry, ('max_attempts', 'backoff', 'delay_ms'), ('max_delay_ms', 'jitter', 'seed'))
     integer(retry['max_attempts'], 'max_attempts', 1, 100)
     integer(retry['delay_ms'], 'delay_ms', 0, 1_000_000_000)
     if retry['backoff'] not in ('fixed', 'exponential'):
         raise ValueError('backoff must be fixed or exponential')
+    if 'max_delay_ms' in retry:
+        integer(retry['max_delay_ms'], 'max_delay_ms', 0, 1_000_000_000)
+    if retry.get('jitter', 'none') not in ('none', 'full'):
+        raise ValueError('jitter must be none or full')
+    if retry.get('jitter', 'none') == 'full':
+        integer(retry.get('seed'), 'seed', 0, 2**32 - 1)
+    elif 'seed' in retry:
+        raise ValueError('seed requires full jitter')
     jobs = scenario['jobs']
     if not isinstance(jobs, list) or not 1 <= len(jobs) <= 1000:
         raise ValueError('jobs must contain 1 to 1000 jobs')
@@ -58,12 +67,27 @@ def validate(scenario):
     return scenario
 
 
+class Backoff:
+    """One independent random stream per simulation; only retries consume it."""
+
+    def __init__(self, policy):
+        self.policy = policy
+        self.rng = random.Random(policy['seed']) if policy.get('jitter') == 'full' else None
+
+    def delay(self, attempt):
+        policy = self.policy
+        delay = policy['delay_ms'] * (2 ** (attempt - 1) if policy['backoff'] == 'exponential' else 1)
+        delay = min(delay, policy.get('max_delay_ms', delay))
+        return self.rng.randint(0, delay) if self.rng is not None else delay
+
+
 def simulate(scenario):
     """FIFO-ready dispatch with completion-first ties and lowest-ID idle workers."""
     validate(scenario)
     if 'visibility_timeout_ms' in scenario:
         return simulate_visibility(scenario)
     retry = scenario['retry']
+    backoff = Backoff(retry)
     queue = []
     sequence = 0
     for job in scenario['jobs']:
@@ -102,7 +126,7 @@ def simulate(scenario):
             event['state'] = state
             results[job['id']] = {'id': job['id'], 'state': state, 'attempts': attempt, 'finished_ms': at}
         else:
-            delay = retry['delay_ms'] * (2 ** (attempt - 1) if retry['backoff'] == 'exponential' else 1)
+            delay = backoff.delay(attempt)
             event.update(state='retry_scheduled', next_attempt_ms=at + delay)
             heapq.heappush(queue, (at + delay, sequence, attempt + 1, job))
             sequence += 1
@@ -117,6 +141,7 @@ def simulate(scenario):
 def simulate_visibility(scenario):
     """Validated opt-in receipt/lease model; expiry never cancels worker execution."""
     retry = scenario['retry']
+    backoff = Backoff(retry)
     ready = []
     scheduled = []
     idle = list(range(1, scenario.get('workers', 1) + 1))
@@ -140,7 +165,7 @@ def simulate_visibility(scenario):
             event['state'] = state
             results[job['id']] = dict(id=job['id'], state=state, attempts=attempt, finished_ms=at)
         else:
-            delay = 0 if timeout else retry['delay_ms'] * (2 ** (attempt - 1) if retry['backoff'] == 'exponential' else 1)
+            delay = 0 if timeout else backoff.delay(attempt)
             event.update(state='redelivery_scheduled' if timeout else 'retry_scheduled', next_attempt_ms=at + delay)
             enqueue(job, at + delay)
 
