@@ -1,0 +1,9 @@
+{
+  "version": 1,
+  "retry": {"max_attempts": 3, "backoff": "exponential", "delay_ms": 100},
+  "jobs": [
+    {"id": "immediate", "failures_before_success": 0},
+    {"id": "transient", "failures_before_success": 2},
+    {"id": "persistent", "failures_before_success": 100, "enqueue_ms": 50}
+  ]
+}
