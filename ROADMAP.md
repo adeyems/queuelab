@@ -21,3 +21,5 @@ Completed follow-up: retry policy comparison. See README for scope and remaining
 Completed packaging slice: installable wheel and console entry point with isolated installation checks in CI. Public package publication and broader release automation remain future work.
 
 Completed scoped milestone: scenario suites. See README for exact semantics and remaining limitations.
+
+Completed scoped follow-up: text event timeline. See README for acceptance scope and remaining limitations.

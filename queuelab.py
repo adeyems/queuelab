@@ -265,13 +265,33 @@ def simulate_suite(suite):
                         'attempts': sum(r['summary']['attempts'] for r in reports)}}
 
 
+def timeline(report):
+    """A bounded textual event viewer; never claims visibility expiry stops work."""
+    events = report['events']
+    lines = ['QueueLab timeline (virtual milliseconds; completion/event order)']
+    for event in events[:1000]:
+        detail = f"{event['time_ms']} ms | {event['job_id']} | attempt {event['attempt']} | {event.get('type', 'attempt_completed')} | {event['state']}"
+        if 'started_ms' in event:
+            detail += f" | worker {event['worker_id']} | started {event['started_ms']} | waited {event['wait_ms']}"
+        if 'acknowledgement' in event:
+            detail += f" | ack {event['acknowledgement']}"
+        lines.append(detail)
+    if len(events) > 1000:
+        lines.append(f"Truncated: showing 1000 of {len(events)} events; use JSON for all events.")
+    lines.append(f"Summary: {report['summary']}")
+    return '\n'.join(lines)
+
+
 def main(argv=None):
     parser = argparse.ArgumentParser(description=__doc__)
+    parser.add_argument('--timeline', action='store_true', help='Bounded text timeline for one scenario')
     parser.add_argument('scenario', help='Synthetic version-1 JSON scenario')
     parser.add_argument('--compare-policy', help='Scenario with identical workload and alternative retry policy')
     parser.add_argument('--suite', action='store_true', help='Read a versioned suite of inline synthetic scenarios')
     args = parser.parse_args(argv)
     try:
+        if args.timeline and (args.suite or args.compare_policy):
+            raise ValueError('Timeline requires a single scenario')
         if args.suite and args.compare_policy:
             raise ValueError("Suite and policy comparison cannot be combined")
         scenario = load(args.scenario)
@@ -279,7 +299,7 @@ def main(argv=None):
     except (ValueError, OSError, RecursionError) as error:
         print(json.dumps({'error': str(error)}), file=sys.stderr)
         return 2
-    print(json.dumps(result, indent=2))
+    print(timeline(result) if args.timeline else json.dumps(result, indent=2))
     summary = result['candidate']['summary'] if args.compare_policy else result['summary']
     return 1 if summary['dead_lettered'] else 0
 

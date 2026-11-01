@@ -74,3 +74,7 @@ From this checkout, run `python3 -m pip install .` in a virtual environment. The
 ## Scenario suites
 
 `queuelab suite.json --suite` accepts exactly version 1 and a scenarios array containing 1–20 inline scenarios. All scenarios validate before simulation, with a total budget of 100000 potential attempts and the existing 1 MiB input limit. Each simulation has its own seeded random stream. Ordered full reports and aggregate attempt/dead-letter totals are returned. Exit 1 means any job was dead-lettered. --suite and --compare-policy cannot be combined.
+
+## Text event timeline
+
+`queuelab examples/visibility.json --timeline` renders one scenario in virtual event/completion order, including starts, waits, workers, visibility expiries and stale acknowledgements. Replace the path with your scenario file. It shows at most 1000 events and explicitly reports truncation; JSON remains the full machine-readable report. Timeline mode cannot be combined with suites or policy comparison. Exit codes remain 0 for no dead letters, 1 for dead letters and 2 for invalid input. A graphical interactive viewer remains future work.
