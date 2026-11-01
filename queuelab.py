@@ -236,17 +236,33 @@ def load(path):
     return json.loads(raw, object_pairs_hook=unique)
 
 
+def compare_policies(baseline, candidate):
+    validate(baseline)
+    validate(candidate)
+    # Only retry policy may vary: retain input order and all scheduling controls.
+    if {k: v for k, v in baseline.items() if k != 'retry'} != {k: v for k, v in candidate.items() if k != 'retry'}:
+        raise ValueError('Policy comparison requires identical workload and scheduling settings')
+    left, right = simulate(baseline), simulate(candidate)
+    return {'version': 1, 'baseline': left, 'candidate': right,
+            'summary_delta': {key: right['summary'][key] - left['summary'][key]
+                              for key in ('succeeded', 'dead_lettered', 'attempts', 'finished_ms')},
+            'policies': {'baseline': baseline['retry'], 'candidate': candidate['retry']}}
+
+
 def main(argv=None):
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument('scenario', help='Synthetic version-1 JSON scenario')
+    parser.add_argument('--compare-policy', help='Scenario with identical workload and alternative retry policy')
     args = parser.parse_args(argv)
     try:
-        result = simulate(load(args.scenario))
+        scenario = load(args.scenario)
+        result = compare_policies(scenario, load(args.compare_policy)) if args.compare_policy else simulate(scenario)
     except (ValueError, OSError, RecursionError) as error:
         print(json.dumps({'error': str(error)}), file=sys.stderr)
         return 2
     print(json.dumps(result, indent=2))
-    return 1 if result['summary']['dead_lettered'] else 0
+    summary = result['candidate']['summary'] if args.compare_policy else result['summary']
+    return 1 if summary['dead_lettered'] else 0
 
 
 if __name__ == '__main__':

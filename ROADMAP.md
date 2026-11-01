@@ -15,3 +15,5 @@ Remaining candidate milestones (not promises of hours worked or submission eligi
 - Scenario suites, report visualization and packaging: reproducible examples, useful diagnostics and installable CLI.
 
 Choose and estimate these against real intended use before claiming remaining development hours. Keep all inputs synthetic; live broker integration and production execution are outside the current scope.
+
+Completed follow-up: retry policy comparison. See README for scope and remaining limitations.
