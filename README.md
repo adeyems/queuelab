@@ -66,3 +66,7 @@ Timeout-mode events include `type`: `attempt_completed` or `visibility_expired`.
 ## Retry policy comparison
 
 `python3 queuelab.py baseline.json --compare-policy candidate.json` compares two validated scenarios. Only `retry` may differ; jobs, order, workers and visibility settings must be identical. Reports retain both full simulations, both policies and candidate-minus-baseline deltas for succeeded/dead-lettered jobs, attempts and virtual finish time. Exit 1 means the candidate has dead-lettered jobs, not merely that the policies differ. Input errors exit 2. A single seeded simulation is not a statistical claim about real queues.
+
+## Installable command
+
+From this checkout, run `python3 -m pip install .` in a virtual environment. Then use `queuelab --help` from any directory. Python 3.10+ is required; the package has no runtime Python dependencies. This installs locally and does not publish to PyPI. Run `python3 tools/check_install.py` to build a wheel and verify installation in a fresh virtual environment. Building requires setuptools from the configured package index.

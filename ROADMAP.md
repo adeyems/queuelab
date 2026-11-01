@@ -17,3 +17,5 @@ Remaining candidate milestones (not promises of hours worked or submission eligi
 Choose and estimate these against real intended use before claiming remaining development hours. Keep all inputs synthetic; live broker integration and production execution are outside the current scope.
 
 Completed follow-up: retry policy comparison. See README for scope and remaining limitations.
+
+Completed packaging slice: installable wheel and console entry point with isolated installation checks in CI. Public package publication and broader release automation remain future work.
