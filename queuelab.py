@@ -249,14 +249,33 @@ def compare_policies(baseline, candidate):
             'policies': {'baseline': baseline['retry'], 'candidate': candidate['retry']}}
 
 
+def simulate_suite(suite):
+    fields(suite, ('version', 'scenarios'))
+    integer(suite['version'], 'suite version', 1, 1)
+    scenarios = suite['scenarios']
+    if not isinstance(scenarios, list) or not 1 <= len(scenarios) <= 20:
+        raise ValueError('Suite requires 1–20 scenarios')
+    for scenario in scenarios:
+        validate(scenario)
+    if sum(len(s['jobs']) * s['retry']['max_attempts'] for s in scenarios) > 100000:
+        raise ValueError('Suite exceeds 100000 potential attempts')
+    reports = [simulate(s) for s in scenarios]
+    return {'version': 1, 'reports': reports,
+            'summary': {'scenarios': len(reports), 'dead_lettered': sum(r['summary']['dead_lettered'] for r in reports),
+                        'attempts': sum(r['summary']['attempts'] for r in reports)}}
+
+
 def main(argv=None):
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument('scenario', help='Synthetic version-1 JSON scenario')
     parser.add_argument('--compare-policy', help='Scenario with identical workload and alternative retry policy')
+    parser.add_argument('--suite', action='store_true', help='Read a versioned suite of inline synthetic scenarios')
     args = parser.parse_args(argv)
     try:
+        if args.suite and args.compare_policy:
+            raise ValueError("Suite and policy comparison cannot be combined")
         scenario = load(args.scenario)
-        result = compare_policies(scenario, load(args.compare_policy)) if args.compare_policy else simulate(scenario)
+        result = simulate_suite(scenario) if args.suite else compare_policies(scenario, load(args.compare_policy)) if args.compare_policy else simulate(scenario)
     except (ValueError, OSError, RecursionError) as error:
         print(json.dumps({'error': str(error)}), file=sys.stderr)
         return 2

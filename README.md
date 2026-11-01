@@ -70,3 +70,7 @@ Timeout-mode events include `type`: `attempt_completed` or `visibility_expired`.
 ## Installable command
 
 From this checkout, run `python3 -m pip install .` in a virtual environment. Then use `queuelab --help` from any directory. Python 3.10+ is required; the package has no runtime Python dependencies. This installs locally and does not publish to PyPI. Run `python3 tools/check_install.py` to build a wheel and verify installation in a fresh virtual environment. Building requires setuptools from the configured package index.
+
+## Scenario suites
+
+`queuelab suite.json --suite` accepts exactly version 1 and a scenarios array containing 1–20 inline scenarios. All scenarios validate before simulation, with a total budget of 100000 potential attempts and the existing 1 MiB input limit. Each simulation has its own seeded random stream. Ordered full reports and aggregate attempt/dead-letter totals are returned. Exit 1 means any job was dead-lettered. --suite and --compare-policy cannot be combined.
