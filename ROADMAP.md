@@ -10,7 +10,7 @@ Completed milestone 4: optional fixed/exponential delay caps and seeded full jit
 
 Remaining candidate milestones (not promises of hours worked or submission eligibility):
 
-- Dead-letter redrive: explicitly select exhausted jobs and preserve their earlier attempt history.
+- Completed scoped dead-letter redrive: explicit selection, retained history, one second batch. More advanced redrive controls require a separate scope decision.
 - Policy comparison: compare completion time, attempt count and exhausted jobs across the same scenario.
 - Scenario suites, report visualization and packaging: reproducible examples, useful diagnostics and installable CLI.
 
@@ -23,3 +23,5 @@ Completed packaging slice: installable wheel and console entry point with isolat
 Completed scoped milestone: scenario suites. See README for exact semantics and remaining limitations.
 
 Completed scoped follow-up: text event timeline. See README for acceptance scope and remaining limitations.
+
+Completed scoped follow-up: explicit dead-letter redrive. See README for precise behavior and remaining work.

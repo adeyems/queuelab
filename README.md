@@ -30,7 +30,7 @@ The worker example runs three jobs with two workers: the slow job runs from 0–
 
 ## Boundaries
 
-This is a new policy simulator, not a broker, worker runtime or production queue emulator. Dead-lettering is a terminal report state, not an external queue. It does not yet model persistence, redrive, heartbeat lease extensions or broker-specific semantics. Workers have identical capacity and jobs have constant per-attempt durations. Synthetic job metadata only; do not supply customer data, credentials or real payloads. See `ROADMAP.md` for unfinished work.
+This is a new policy simulator, not a broker, worker runtime or production queue emulator. Dead-lettering is a terminal report state, not an external queue. It does not yet model persistence, heartbeat lease extensions or broker-specific semantics. Workers have identical capacity and jobs have constant per-attempt durations. Synthetic job metadata only; do not supply customer data, credentials or real payloads. See `ROADMAP.md` for unfinished work.
 
 ## Capped backoff and seeded full jitter
 
@@ -78,3 +78,7 @@ From this checkout, run `python3 -m pip install .` in a virtual environment. The
 ## Text event timeline
 
 `queuelab examples/visibility.json --timeline` renders one scenario in virtual event/completion order, including starts, waits, workers, visibility expiries and stale acknowledgements. Replace the path with your scenario file. It shows at most 1000 events and explicitly reports truncation; JSON remains the full machine-readable report. Timeline mode cannot be combined with suites or policy comparison. Exit codes remain 0 for no dead letters, 1 for dead letters and 2 for invalid input. A graphical interactive viewer remains future work.
+
+## Explicit dead-letter redrive
+
+`queuelab examples/retries.json --redrive JOB_ID` runs the original scenario then redrives selected exhausted IDs once; repeat the flag for multiple jobs. Only exhausted IDs are accepted. The report retains the entire original history and a separate redrive report. The second batch begins after all original work finishes, with local time/attempt numbers and seeded RNG reset. Previously consumed failure and lost-ack attempt numbers are subtracted; workers and retry policy stay the same. `redrive_time_origin_ms` maps the new batch to original virtual time. Exit status reflects the selected redrive batch; unselected original dead letters remain in the original report. No recursive redrive, manual outcome editing, broker calls, or overlapping batches.

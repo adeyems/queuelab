@@ -1,5 +1,6 @@
 """Deterministic, offline retry simulation for synthetic jobs. Python 3.10+."""
 import argparse
+import copy
 import heapq
 import json
 import random
@@ -265,6 +266,35 @@ def simulate_suite(suite):
                         'attempts': sum(r['summary']['attempts'] for r in reports)}}
 
 
+def redrive(scenario, selected):
+    """One explicit second batch; attempt numbering and RNG reset per batch."""
+    validate(scenario)
+    if not selected or len(selected) != len(set(selected)):
+        raise ValueError('Redrive requires distinct job IDs')
+    before = simulate(scenario)
+    exhausted = {j['id'] for j in before['jobs'] if j['state'] == 'dead_lettered'}
+    if not set(selected) <= exhausted:
+        raise ValueError('Redrive IDs must identify dead-lettered jobs')
+    after_input = copy.deepcopy(scenario)
+    attempts = {j['id']: j['attempts'] for j in before['jobs']}
+    after_input['jobs'] = []
+    for job in scenario['jobs']:
+        if job['id'] not in selected:
+            continue
+        item = copy.deepcopy(job)
+        consumed = attempts[job['id']]
+        item['enqueue_ms'] = 0
+        item['failures_before_success'] = max(0, item['failures_before_success'] - consumed)
+        if 'ack_lost_attempts' in item:
+            item['ack_lost_attempts'] = [n-consumed for n in item['ack_lost_attempts'] if n > consumed]
+        after_input['jobs'].append(item)
+    after = simulate(after_input)
+    return {'version': 1, 'original': before, 'redrive': after,
+            'redrive_scenario': after_input, 'selected_ids': [j['id'] for j in after_input['jobs']],
+            'redrive_time_origin_ms': before['summary']['finished_ms'],
+            'semantics': 'new_batch_after_all_original_work_finishes; local_attempts_and_rng_reset'}
+
+
 def timeline(report):
     """A bounded textual event viewer; never claims visibility expiry stops work."""
     events = report['events']
@@ -284,23 +314,26 @@ def timeline(report):
 
 def main(argv=None):
     parser = argparse.ArgumentParser(description=__doc__)
+    parser.add_argument('--redrive', action='append', help='Explicit exhausted job ID to redrive once; repeatable')
     parser.add_argument('--timeline', action='store_true', help='Bounded text timeline for one scenario')
     parser.add_argument('scenario', help='Synthetic version-1 JSON scenario')
     parser.add_argument('--compare-policy', help='Scenario with identical workload and alternative retry policy')
     parser.add_argument('--suite', action='store_true', help='Read a versioned suite of inline synthetic scenarios')
     args = parser.parse_args(argv)
     try:
+        if args.redrive and (args.timeline or args.suite or args.compare_policy):
+            raise ValueError('Redrive requires a single scenario and JSON output')
         if args.timeline and (args.suite or args.compare_policy):
             raise ValueError('Timeline requires a single scenario')
         if args.suite and args.compare_policy:
             raise ValueError("Suite and policy comparison cannot be combined")
         scenario = load(args.scenario)
-        result = simulate_suite(scenario) if args.suite else compare_policies(scenario, load(args.compare_policy)) if args.compare_policy else simulate(scenario)
+        result = redrive(scenario, args.redrive) if args.redrive else simulate_suite(scenario) if args.suite else compare_policies(scenario, load(args.compare_policy)) if args.compare_policy else simulate(scenario)
     except (ValueError, OSError, RecursionError) as error:
         print(json.dumps({'error': str(error)}), file=sys.stderr)
         return 2
     print(timeline(result) if args.timeline else json.dumps(result, indent=2))
-    summary = result['candidate']['summary'] if args.compare_policy else result['summary']
+    summary = result['redrive']['summary'] if args.redrive else result['candidate']['summary'] if args.compare_policy else result['summary']
     return 1 if summary['dead_lettered'] else 0
 
 
