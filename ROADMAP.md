@@ -25,3 +25,5 @@ Completed scoped milestone: scenario suites. See README for exact semantics and 
 Completed scoped follow-up: text event timeline. See README for acceptance scope and remaining limitations.
 
 Completed scoped follow-up: explicit dead-letter redrive. See README for precise behavior and remaining work.
+
+Completed scoped follow-up: local html timeline viewer. See README for limitations and remaining work.

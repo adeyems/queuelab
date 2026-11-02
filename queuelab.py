@@ -2,6 +2,7 @@
 import argparse
 import copy
 import heapq
+import html
 import json
 import random
 import sys
@@ -312,8 +313,28 @@ def timeline(report):
     return '\n'.join(lines)
 
 
+def timeline_html(report):
+    """Self-contained bounded table and time bars; no script or remote assets."""
+    rows = []
+    finish = max(1, report['summary']['finished_ms'])
+    for event in report['events'][:1000]:
+        started = event.get('started_ms', event['time_ms'])
+        width = max(0.2, (event['time_ms'] - started) / finish * 100)
+        left = min(99.8, started / finish * 100)
+        label = f"{event['job_id']} / attempt {event['attempt']} / {event.get('type', 'attempt_completed')} / {event['state']}"
+        rows.append(f'<tr><td>{html.escape(label)}</td><td>{started}</td><td>{event["time_ms"]}</td><td><div class="track"><span style="left:{left:.4f}%;width:{width:.4f}%"></span></div></td></tr>')
+    omitted = max(0, len(report['events']) - len(rows))
+    return ('<!doctype html><html lang="en"><meta charset="utf-8"><meta name="viewport" content="width=device-width">'
+            '<title>QueueLab timeline</title><style>body{font:16px system-ui;margin:2rem}table{border-collapse:collapse;width:100%}td,th{padding:.5rem;border-bottom:1px solid #ccc;text-align:left}.track{position:relative;min-width:200px;height:16px;background:#eee;overflow:hidden}.track span{position:absolute;height:100%;background:#2463aa}</style>'
+            '<h1>QueueLab virtual-time timeline</h1><p>Rows follow event/completion order. Expiry does not cancel running work. Times are milliseconds.</p>'
+            f'<p>{len(rows)} events shown; {omitted} omitted. Full event history remains available in JSON.</p>'
+            '<table><caption>Attempt intervals and point events</caption><thead><tr><th>Event</th><th>Start / event</th><th>Finish / event</th><th>Position in run</th></tr></thead><tbody>'
+            + ''.join(rows) + '</tbody></table></html>')
+
+
 def main(argv=None):
     parser = argparse.ArgumentParser(description=__doc__)
+    parser.add_argument('--timeline-html', help='Write a self-contained timeline to a new HTML file')
     parser.add_argument('--redrive', action='append', help='Explicit exhausted job ID to redrive once; repeatable')
     parser.add_argument('--timeline', action='store_true', help='Bounded text timeline for one scenario')
     parser.add_argument('scenario', help='Synthetic version-1 JSON scenario')
@@ -321,6 +342,8 @@ def main(argv=None):
     parser.add_argument('--suite', action='store_true', help='Read a versioned suite of inline synthetic scenarios')
     args = parser.parse_args(argv)
     try:
+        if args.timeline_html and (args.redrive or args.suite or args.compare_policy or args.timeline):
+            raise ValueError('HTML timeline requires one scenario without other output modes')
         if args.redrive and (args.timeline or args.suite or args.compare_policy):
             raise ValueError('Redrive requires a single scenario and JSON output')
         if args.timeline and (args.suite or args.compare_policy):
@@ -332,6 +355,13 @@ def main(argv=None):
     except (ValueError, OSError, RecursionError) as error:
         print(json.dumps({'error': str(error)}), file=sys.stderr)
         return 2
+    if args.timeline_html:
+        try:
+            with open(args.timeline_html, 'x', encoding='utf-8') as output:
+                output.write(timeline_html(result))
+        except OSError as error:
+            print(json.dumps({'error': str(error)}), file=sys.stderr)
+            return 2
     print(timeline(result) if args.timeline else json.dumps(result, indent=2))
     summary = result['redrive']['summary'] if args.redrive else result['candidate']['summary'] if args.compare_policy else result['summary']
     return 1 if summary['dead_lettered'] else 0

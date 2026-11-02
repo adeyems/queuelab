@@ -77,8 +77,12 @@ From this checkout, run `python3 -m pip install .` in a virtual environment. The
 
 ## Text event timeline
 
-`queuelab examples/visibility.json --timeline` renders one scenario in virtual event/completion order, including starts, waits, workers, visibility expiries and stale acknowledgements. Replace the path with your scenario file. It shows at most 1000 events and explicitly reports truncation; JSON remains the full machine-readable report. Timeline mode cannot be combined with suites or policy comparison. Exit codes remain 0 for no dead letters, 1 for dead letters and 2 for invalid input. A graphical interactive viewer remains future work.
+`queuelab examples/visibility.json --timeline` renders one scenario in virtual event/completion order, including starts, waits, workers, visibility expiries and stale acknowledgements. Replace the path with your scenario file. It shows at most 1000 events and explicitly reports truncation; JSON remains the full machine-readable report. Timeline mode cannot be combined with suites or policy comparison. Exit codes remain 0 for no dead letters, 1 for dead letters and 2 for invalid input. A static HTML viewer is available below; interactive controls remain future work.
 
 ## Explicit dead-letter redrive
 
 `queuelab examples/retries.json --redrive JOB_ID` runs the original scenario then redrives selected exhausted IDs once; repeat the flag for multiple jobs. Only exhausted IDs are accepted. The report retains the entire original history and a separate redrive report. The second batch begins after all original work finishes, with local time/attempt numbers and seeded RNG reset. Previously consumed failure and lost-ack attempt numbers are subtracted; workers and retry policy stay the same. `redrive_time_origin_ms` maps the new batch to original virtual time. Exit status reflects the selected redrive batch; unselected original dead letters remain in the original report. No recursive redrive, manual outcome editing, broker calls, or overlapping batches.
+
+## Local HTML timeline viewer
+
+`queuelab examples/visibility.json --timeline-html NEW.html` writes a self-contained HTML event table and timeline bars; the usual JSON report remains on stdout. Open the saved file locally; it requires no JavaScript, server or external assets. The first 1000 events are shown with an explicit omitted count and numeric timestamps. Bars have a minimum visible width and endpoint clamp; numeric times are authoritative. Expiry events are points and do not imply cancellation of running attempts. Existing files are not overwritten. Only single-scenario mode is supported; filtering and interactive zoom remain future work.
